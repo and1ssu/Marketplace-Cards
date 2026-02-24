@@ -59,5 +59,12 @@ export const validateTradeForm = (form: TradeForm) => {
     errors.receivingIds = 'Selecione ao menos uma carta para receber.'
   }
 
+  const offeringSet = new Set(form.offeringIds)
+  const hasOverlap = form.receivingIds.some((cardId) => offeringSet.has(cardId))
+
+  if (hasOverlap) {
+    errors.receivingIds = 'Nao e permitido receber a mesma carta que esta sendo oferecida.'
+  }
+
   return errors
 }

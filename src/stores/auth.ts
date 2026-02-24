@@ -5,9 +5,72 @@ import type { LoginPayload, RegisterPayload, UserProfile } from '@/types/marketp
 
 const TOKEN_KEY = 'marketplace-token'
 
-const getErrorMessage = (error: unknown) => {
+const translateRegisterApiMessage = (message: string, status: number) => {
+  const normalized = message.toLowerCase()
+
+  if (
+    normalized.includes('email already') ||
+    normalized.includes('already exists') ||
+    normalized.includes('user already') ||
+    normalized.includes('duplicate') ||
+    normalized.includes('unique constraint')
+  ) {
+    return 'Este e-mail já está cadastrado.'
+  }
+
+  if (normalized.includes('email')) {
+    return 'E-mail inválido.'
+  }
+
+  if (normalized.includes('password')) {
+    return 'Senha inválida.'
+  }
+
+  if (status === 401) {
+    return 'E-mail ou senha inválidos.'
+  }
+
+  if (status === 409) {
+    return 'Este e-mail já está cadastrado.'
+  }
+
+  return message
+}
+
+const getRegisterErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) {
-    return error.message
+    return translateRegisterApiMessage(error.message, error.status)
+  }
+
+  return 'Ocorreu um erro inesperado.'
+}
+
+const getLoginErrorMessage = (error: unknown) => {
+  if (error instanceof ApiError) {
+    const normalized = error.message.toLowerCase()
+
+    if (
+      error.status === 400 ||
+      error.status === 401 ||
+      error.status === 403 ||
+      normalized.includes('invalid email') ||
+      normalized.includes('invalid password') ||
+      normalized.includes('invalid credentials') ||
+      normalized.includes('wrong password') ||
+      normalized.includes('unauthorized') ||
+      normalized.includes('bad credentials') ||
+      normalized.includes('user not found') ||
+      normalized.includes('email or password') ||
+      normalized.includes('email')
+    ) {
+      return 'E-mail ou senha inválidos.'
+    }
+
+    if (error.status >= 500) {
+      return 'Erro no servidor. Tente novamente em instantes.'
+    }
+
+    return 'Não foi possível entrar. Tente novamente.'
   }
 
   return 'Ocorreu um erro inesperado.'
@@ -78,7 +141,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         await registerUser(payload)
       } catch (error) {
-        this.error = getErrorMessage(error)
+        this.error = getRegisterErrorMessage(error)
         throw error
       } finally {
         this.loading = false
@@ -93,7 +156,7 @@ export const useAuthStore = defineStore('auth', {
         this.setToken(response.token)
         this.user = response.user
       } catch (error) {
-        this.error = getErrorMessage(error)
+        this.error = getLoginErrorMessage(error)
         throw error
       } finally {
         this.loading = false
@@ -115,7 +178,7 @@ export const useAuthStore = defineStore('auth', {
           email: me.email
         }
       } catch (error) {
-        this.error = getErrorMessage(error)
+        this.error = getRegisterErrorMessage(error)
         throw error
       } finally {
         this.loading = false

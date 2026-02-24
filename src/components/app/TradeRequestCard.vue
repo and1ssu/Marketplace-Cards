@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import CardImagePreview from '@/components/app/CardImagePreview.vue'
 import type { Trade } from '@/types/marketplace'
 
 const props = defineProps<{
@@ -29,7 +30,7 @@ const formattedDate = computed(() =>
 </script>
 
 <template>
-  <article class="rounded-2xl border border-border/70 bg-card/90 p-5 backdrop-blur">
+  <article class="flex min-h-[14rem] max-h-[34rem] flex-col rounded-2xl border border-border/70 bg-card/90 p-5 backdrop-blur">
     <header class="flex items-start justify-between gap-4">
       <div>
         <p class="text-sm text-muted-foreground">Solicitante</p>
@@ -48,31 +49,33 @@ const formattedDate = computed(() =>
       </div>
     </header>
 
-    <div class="mt-5 grid gap-4 md:grid-cols-2">
-      <section class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+    <div class="mt-5 grid min-h-0 gap-4 md:grid-cols-2">
+      <section class="flex min-h-[8rem] min-w-0 flex-col rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">Oferecendo</p>
-        <ul class="mt-2 space-y-2">
-          <li v-for="tradeCard in offeringCards" :key="tradeCard.id" class="flex items-center gap-2">
-            <img
+        <ul class="mt-2 min-h-[3.5rem] max-h-[18rem] space-y-2 overflow-y-auto pr-1">
+          <li v-for="tradeCard in offeringCards" :key="tradeCard.id" class="flex items-center gap-3">
+            <CardImagePreview
               :src="tradeCard.card.imageUrl"
               :alt="tradeCard.card.name"
-              class="h-10 w-8 rounded object-cover"
-              loading="lazy"
+              thumb-class="h-16 w-12 rounded-md border border-border/60 bg-white/70 p-0.5"
+              image-class="h-full w-full object-contain"
+              modal-image-class="max-h-[90vh] w-auto max-w-[92vw] object-contain"
             />
             <span class="text-sm">{{ tradeCard.card.name }}</span>
           </li>
         </ul>
       </section>
 
-      <section class="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+      <section class="flex min-h-[8rem] min-w-0 flex-col rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Recebendo</p>
-        <ul class="mt-2 space-y-2">
-          <li v-for="tradeCard in receivingCards" :key="tradeCard.id" class="flex items-center gap-2">
-            <img
+        <ul class="mt-2 min-h-[3.5rem] max-h-[18rem] space-y-2 overflow-y-auto pr-1">
+          <li v-for="tradeCard in receivingCards" :key="tradeCard.id" class="flex items-center gap-3">
+            <CardImagePreview
               :src="tradeCard.card.imageUrl"
               :alt="tradeCard.card.name"
-              class="h-10 w-8 rounded object-cover"
-              loading="lazy"
+              thumb-class="h-16 w-12 rounded-md border border-border/60 bg-white/70 p-0.5"
+              image-class="h-full w-full object-contain"
+              modal-image-class="max-h-[90vh] w-auto max-w-[92vw] object-contain"
             />
             <span class="text-sm">{{ tradeCard.card.name }}</span>
           </li>

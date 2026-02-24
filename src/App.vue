@@ -1,24 +1,75 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
+import ThemeToggle from '@/components/app/ThemeToggle.vue'
 import { useAppContext } from '@/context/app-context'
 import { useAuthStore } from '@/stores/auth'
 
+interface SidebarItem {
+  label: string
+  to: RouteLocationRaw
+  badge?: string
+}
+
+interface SidebarSection {
+  title: string
+  items: SidebarItem[]
+}
+
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const appContext = useAppContext()
 
-const navItems = computed(() => {
-  const publicItems = [{ to: '/', label: 'Marketplace' }]
+const toasts = computed(() => appContext.toasts.value)
 
+const guestSections = computed<SidebarSection[]>(() => [
+  {
+    title: 'Marketplace',
+    items: [{ label: 'Trocas abertas', to: '/' }]
+  },
+  {
+    title: 'Acesso',
+    items: [
+      { label: 'Entrar', to: '/login' },
+      { label: 'Criar conta', to: '/register' }
+    ]
+  }
+])
+
+const authSections = computed<SidebarSection[]>(() => [
+  {
+    title: 'Marketplace',
+    items: [{ label: 'Trocas abertas', to: '/' }]
+  },
+  {
+    title: 'Coleção',
+    items: [
+      { label: 'Minhas cartas', to: { path: '/dashboard', query: { tab: 'inventory' } } },
+      { label: 'Adicionar cartas', to: { path: '/dashboard', query: { tab: 'catalog' } } }
+    ]
+  },
+  {
+    title: 'Trocas',
+    items: [
+      { label: 'Criar solicitação', to: { path: '/dashboard', query: { tab: 'trade' } } },
+      { label: 'Minhas solicitações', to: { path: '/dashboard', query: { tab: 'my-trades' } }, badge: 'Minhas' }
+    ]
+  }
+])
+
+const sidebarSections = computed(() => (authStore.isAuthenticated ? authSections.value : guestSections.value))
+
+const topNavItems = computed<SidebarItem[]>(() => {
   if (!authStore.isAuthenticated) {
-    return publicItems
+    return [{ label: 'Marketplace', to: '/' }]
   }
 
-  return [...publicItems, { to: '/dashboard', label: 'Dashboard' }]
+  return [
+    { label: 'Marketplace', to: '/' },
+    { label: 'Dashboard', to: { path: '/dashboard', query: { tab: 'inventory' } } }
+  ]
 })
-
-const toasts = computed(() => appContext.toasts.value)
 
 const logout = async () => {
   authStore.logout()
@@ -28,69 +79,150 @@ const logout = async () => {
 
 const toastToneClass = (tone: 'success' | 'error' | 'info') => {
   if (tone === 'success') {
-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+    return 'border-success/30 bg-success/10 text-success'
   }
 
   if (tone === 'error') {
     return 'border-destructive/30 bg-destructive/10 text-destructive'
   }
 
-  return 'border-indigo-500/30 bg-indigo-500/10 text-indigo-700'
+  return 'border-ygo-primary/30 bg-ygo-primary/10 text-ygo-primary'
+}
+
+const isItemActive = (item: SidebarItem) => {
+  if (typeof item.to === 'string') {
+    return route.path === item.to
+  }
+
+  if (!('path' in item.to)) {
+    return false
+  }
+
+  const itemPath = item.to.path
+
+  if (itemPath !== route.path) {
+    return false
+  }
+
+  const itemQuery = item.to.query
+
+  if (!itemQuery || typeof itemQuery !== 'object') {
+    return true
+  }
+
+  return Object.entries(itemQuery).every(([key, value]) => route.query[key] === String(value))
 }
 </script>
 
 <template>
-  <div class="min-h-screen bg-shell text-foreground">
+  <div class="min-h-screen bg-background text-foreground">
     <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div class="absolute -left-24 top-16 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl"></div>
+      <div class="absolute -left-24 top-16 h-64 w-64 rounded-full bg-cyan-400/15 blur-3xl"></div>
       <div class="absolute right-0 top-0 h-80 w-80 rounded-full bg-orange-300/20 blur-3xl"></div>
       <div class="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl"></div>
     </div>
 
-    <header class="border-b border-border/60 bg-card/70 backdrop-blur">
-      <div class="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <RouterLink to="/" class="font-display text-2xl font-bold tracking-tight">CardFlow</RouterLink>
+    <div class="lg:grid lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-5">
+      <aside class="hidden lg:block">
+        <div class="sticky top-0 h-screen p-4">
+          <div class="flex h-full flex-col rounded-2xl border border-border/70 bg-card/80 p-4 backdrop-blur">
+            <div class="flex items-center justify-between gap-3 border-b border-border/70 pb-4">
+              <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ygo-primary text-sm font-bold text-ygo-primaryForeground">
+                  CF
+                </div>
+                <div>
+                  <p class="font-display text-xl leading-none">CardFlow</p>
+                  <p class="text-xs text-muted-foreground">Marketplace</p>
+                </div>
+              </div>
+              <ThemeToggle />
+            </div>
 
-        <nav class="flex items-center gap-2">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.to"
-            :to="item.to"
-            class="rounded-md px-3 py-2 text-sm font-medium transition hover:bg-accent"
-            active-class="bg-accent"
-          >
-            {{ item.label }}
-          </RouterLink>
-        </nav>
+            <div class="mt-5 flex-1 space-y-6 overflow-y-auto">
+              <section v-for="section in sidebarSections" :key="section.title">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{{ section.title }}</p>
+                <div class="space-y-1">
+                  <RouterLink
+                    v-for="item in section.items"
+                    :key="`${section.title}-${item.label}`"
+                    :to="item.to"
+                    class="flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition"
+                    :class="isItemActive(item) ? 'bg-primary/12 text-primary' : 'hover:bg-accent/70'"
+                  >
+                    <span>{{ item.label }}</span>
+                    <span v-if="item.badge" class="rounded-full bg-destructive px-2 py-0.5 text-[11px] text-destructive-foreground">
+                      {{ item.badge }}
+                    </span>
+                  </RouterLink>
+                </div>
+              </section>
+            </div>
 
-        <div class="flex items-center gap-2">
-          <template v-if="authStore.isAuthenticated">
-            <span class="hidden text-sm text-muted-foreground sm:inline">{{ authStore.user?.name }}</span>
-            <button
-              class="rounded-md border border-border px-3 py-2 text-sm transition hover:border-foreground"
-              @click="logout"
-            >
-              Sair
-            </button>
-          </template>
-          <template v-else>
-            <RouterLink to="/login" class="rounded-md px-3 py-2 text-sm font-medium transition hover:bg-accent">
-              Entrar
-            </RouterLink>
-            <RouterLink
-              to="/register"
-              class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-            >
-              Criar conta
-            </RouterLink>
-          </template>
+            <div class="border-t border-border/70 pt-4">
+              <template v-if="authStore.isAuthenticated">
+                <p class="mb-2 text-sm text-muted-foreground">{{ authStore.user?.name }}</p>
+                <button
+                  class="w-full rounded-lg border border-destructive/40 px-3 py-2 text-left text-sm font-medium text-destructive transition hover:bg-destructive/10"
+                  @click="logout"
+                >
+                  Sair
+                </button>
+              </template>
+              <template v-else>
+                <p class="text-sm text-muted-foreground">Faça login para criar e gerenciar suas trocas.</p>
+              </template>
+            </div>
+          </div>
         </div>
-      </div>
-    </header>
+      </aside>
 
-    <main class="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
-      <RouterView />
-    </main>
+      <div class="min-h-screen">
+        <header class="border-b border-border/60 bg-card/70 px-4 py-4 backdrop-blur lg:hidden">
+          <div class="flex items-center justify-between gap-2">
+            <RouterLink to="/" class="font-display text-2xl font-bold tracking-tight">CardFlow</RouterLink>
+            <div class="flex items-center gap-2">
+              <ThemeToggle />
+              <template v-if="authStore.isAuthenticated">
+                <button
+                  class="rounded-md border border-border px-3 py-1.5 text-sm transition hover:border-foreground"
+                  @click="logout"
+                >
+                  Sair
+                </button>
+              </template>
+              <template v-else>
+                <RouterLink to="/login" class="rounded-md px-3 py-1.5 text-sm font-medium transition hover:bg-accent">
+                  Entrar
+                </RouterLink>
+                <RouterLink
+                  to="/register"
+                  class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+                >
+                  Criar conta
+                </RouterLink>
+              </template>
+            </div>
+          </div>
+
+          <nav class="mt-3 flex flex-wrap gap-2">
+            <RouterLink
+              v-for="item in topNavItems"
+              :key="item.label"
+              :to="item.to"
+              class="rounded-md border border-border px-3 py-1.5 text-sm"
+              active-class="bg-accent"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </nav>
+        </header>
+
+        <main class="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
+          <RouterView />
+        </main>
+      </div>
+    </div>
 
     <div class="fixed bottom-4 right-4 z-50 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-2">
       <article

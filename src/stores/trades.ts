@@ -12,8 +12,10 @@ const getErrorMessage = (error: unknown) => {
   return 'Ocorreu um erro inesperado.'
 }
 
+const tradesCacheKey = (page: number, rpp: number) => `${rpp}:${page}`
+
 interface TradesState {
-  pages: Record<number, PaginatedResponse<Trade>>
+  pages: Record<string, PaginatedResponse<Trade>>
   loading: boolean
   actionLoading: boolean
   error: string | null
@@ -26,10 +28,15 @@ export const useTradesStore = defineStore('trades', {
     actionLoading: false,
     error: null
   }),
+  getters: {
+    getTradesPage: (state) => (page: number, rpp: number) => state.pages[tradesCacheKey(page, rpp)]
+  },
   actions: {
     async fetchTrades(page = 1, rpp = 10, force = false) {
-      if (!force && this.pages[page]) {
-        return this.pages[page]
+      const key = tradesCacheKey(page, rpp)
+
+      if (!force && this.pages[key]) {
+        return this.pages[key]
       }
 
       this.loading = true
@@ -37,7 +44,7 @@ export const useTradesStore = defineStore('trades', {
 
       try {
         const data = await getTrades(page, rpp)
-        this.pages[page] = data
+        this.pages[key] = data
         return data
       } catch (error) {
         this.error = getErrorMessage(error)
@@ -78,9 +85,14 @@ export const useTradesStore = defineStore('trades', {
       try {
         await deleteTrade(auth.token, tradeId)
 
-        Object.entries(this.pages).forEach(([pageKey, page]) => {
-          const pageNumber = Number(pageKey)
-          this.pages[pageNumber] = {
+        Object.keys(this.pages).forEach((key) => {
+          const page = this.pages[key]
+
+          if (!page) {
+            return
+          }
+
+          this.pages[key] = {
             ...page,
             list: page.list.filter((trade) => trade.id !== tradeId)
           }
