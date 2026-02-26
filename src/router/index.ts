@@ -28,6 +28,12 @@ const router = createRouter({
       component: () => import('@/pages/DashboardPage.vue')
     },
     {
+      path: '/profile',
+      name: 'profile',
+      meta: { requiresAuth: true },
+      component: () => import('@/pages/ProfilePage.vue')
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/'
     }

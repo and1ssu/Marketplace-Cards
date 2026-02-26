@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import ThemeToggle from '@/components/app/ThemeToggle.vue'
 import { useAppContext } from '@/context/app-context'
+import { PROFILE_AVATAR_UPDATED_EVENT, getStoredAvatar } from '@/lib/profile-avatar'
+import { getTrades } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useCardsStore } from '@/stores/cards'
+import { useTradesStore } from '@/stores/trades'
 
 interface SidebarItem {
   label: string
@@ -17,16 +21,43 @@ interface SidebarSection {
 }
 
 const authStore = useAuthStore()
+const cardsStore = useCardsStore()
+const tradesStore = useTradesStore()
 const router = useRouter()
 const route = useRoute()
 const appContext = useAppContext()
+const sidebarAvatarUrl = ref<string | null>(null)
+const openTradesTotalCount = ref<number | null>(null)
+const openTradesCountLoading = ref(false)
+const BADGE_COUNT_RPP = 999
+
+const formatBadgeCount = (count: number) => (count > 99 ? '99+' : String(count))
 
 const toasts = computed(() => appContext.toasts.value)
+const openTradesBadge = computed(() => {
+  if (openTradesCountLoading.value && openTradesTotalCount.value === null) {
+    return '...'
+  }
+
+  return formatBadgeCount(openTradesTotalCount.value ?? 0)
+})
+
+const myCardsBadge = computed(() => {
+  if (!authStore.isAuthenticated) {
+    return undefined
+  }
+
+  if (cardsStore.myCardsLoading && cardsStore.myCards.length === 0) {
+    return '...'
+  }
+
+  return formatBadgeCount(cardsStore.myCards.length)
+})
 
 const guestSections = computed<SidebarSection[]>(() => [
   {
     title: 'Marketplace',
-    items: [{ label: 'Trocas abertas', to: '/' }]
+    items: [{ label: 'Trocas abertas', to: '/', badge: openTradesBadge.value }]
   },
   {
     title: 'Acesso',
@@ -40,12 +71,12 @@ const guestSections = computed<SidebarSection[]>(() => [
 const authSections = computed<SidebarSection[]>(() => [
   {
     title: 'Marketplace',
-    items: [{ label: 'Trocas abertas', to: '/' }]
+    items: [{ label: 'Trocas abertas', to: '/', badge: openTradesBadge.value }]
   },
   {
     title: 'Coleção',
     items: [
-      { label: 'Minhas cartas', to: { path: '/dashboard', query: { tab: 'inventory' } } },
+      { label: 'Minhas cartas', to: { path: '/dashboard', query: { tab: 'inventory' } }, badge: myCardsBadge.value },
       { label: 'Adicionar cartas', to: { path: '/dashboard', query: { tab: 'catalog' } } }
     ]
   },
@@ -53,26 +84,78 @@ const authSections = computed<SidebarSection[]>(() => [
     title: 'Trocas',
     items: [
       { label: 'Criar solicitação', to: { path: '/dashboard', query: { tab: 'trade' } } },
-      { label: 'Minhas solicitações', to: { path: '/dashboard', query: { tab: 'my-trades' } }, badge: 'Minhas' }
+      { label: 'Minhas solicitações', to: { path: '/dashboard', query: { tab: 'my-trades' } } }
     ]
+  },
+  {
+    title: 'Conta',
+    items: [{ label: 'Meu perfil', to: '/profile' }]
   }
 ])
 
 const sidebarSections = computed(() => (authStore.isAuthenticated ? authSections.value : guestSections.value))
 
 const topNavItems = computed<SidebarItem[]>(() => {
-  if (!authStore.isAuthenticated) {
-    return [{ label: 'Marketplace', to: '/' }]
+  return sidebarSections.value.flatMap((section) => section.items)
+})
+
+const sidebarUserInitial = computed(() => authStore.user?.name?.trim().charAt(0).toUpperCase() || 'U')
+
+const syncSidebarAvatar = () => {
+  if (!authStore.user?.id) {
+    sidebarAvatarUrl.value = null
+    return
   }
 
-  return [
-    { label: 'Marketplace', to: '/' },
-    { label: 'Dashboard', to: { path: '/dashboard', query: { tab: 'inventory' } } }
-  ]
-})
+  sidebarAvatarUrl.value = getStoredAvatar(authStore.user.id)
+}
+
+const onProfileAvatarUpdated = (event: Event) => {
+  const customEvent = event as CustomEvent<{ userId?: string }>
+
+  if (!authStore.user?.id) {
+    return
+  }
+
+  if (customEvent.detail?.userId && customEvent.detail.userId !== authStore.user.id) {
+    return
+  }
+
+  syncSidebarAvatar()
+}
+
+const fetchOpenTradesTotalCount = async () => {
+  openTradesCountLoading.value = true
+
+  try {
+    const response = await getTrades(1, BADGE_COUNT_RPP)
+    openTradesTotalCount.value = response.list.length
+  } catch {
+    openTradesTotalCount.value = 0
+  } finally {
+    openTradesCountLoading.value = false
+  }
+}
+
+const syncSidebarBadges = async () => {
+  const actions: Promise<unknown>[] = [fetchOpenTradesTotalCount()]
+
+  if (authStore.isAuthenticated) {
+    actions.push(cardsStore.fetchMyCards(true))
+  }
+
+  await Promise.all(
+    actions.map((action) =>
+      action.catch(() => {
+        return null
+      })
+    )
+  )
+}
 
 const logout = async () => {
   authStore.logout()
+  sidebarAvatarUrl.value = null
   appContext.notify('Sessao finalizada.', 'info')
   await router.push('/')
 }
@@ -112,6 +195,39 @@ const isItemActive = (item: SidebarItem) => {
 
   return Object.entries(itemQuery).every(([key, value]) => route.query[key] === String(value))
 }
+
+watch(
+  () => authStore.user?.id,
+  () => {
+    syncSidebarAvatar()
+  }
+)
+
+watch(
+  () => authStore.isAuthenticated,
+  () => {
+    void syncSidebarBadges()
+  }
+)
+
+watch(
+  () => tradesStore.actionLoading,
+  (isLoading, wasLoading) => {
+    if (wasLoading && !isLoading) {
+      void fetchOpenTradesTotalCount()
+    }
+  }
+)
+
+onMounted(() => {
+  syncSidebarAvatar()
+  window.addEventListener(PROFILE_AVATAR_UPDATED_EVENT, onProfileAvatarUpdated as EventListener)
+  void syncSidebarBadges()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(PROFILE_AVATAR_UPDATED_EVENT, onProfileAvatarUpdated as EventListener)
+})
 </script>
 
 <template>
@@ -151,7 +267,10 @@ const isItemActive = (item: SidebarItem) => {
                     :class="isItemActive(item) ? 'bg-primary/12 text-primary' : 'hover:bg-accent/70'"
                   >
                     <span>{{ item.label }}</span>
-                    <span v-if="item.badge" class="rounded-full bg-destructive px-2 py-0.5 text-[11px] text-destructive-foreground">
+                    <span
+                      v-if="item.badge"
+                      class="rounded-full border border-ygo-accent/45 bg-ygo-accent px-2 py-0.5 text-[11px] font-semibold text-ygo-accentForeground"
+                    >
                       {{ item.badge }}
                     </span>
                   </RouterLink>
@@ -161,7 +280,13 @@ const isItemActive = (item: SidebarItem) => {
 
             <div class="border-t border-border/70 pt-4">
               <template v-if="authStore.isAuthenticated">
-                <p class="mb-2 text-sm text-muted-foreground">{{ authStore.user?.name }}</p>
+                <div class="mb-3 flex items-center gap-2">
+                  <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-accent/50">
+                    <img v-if="sidebarAvatarUrl" :src="sidebarAvatarUrl" alt="Avatar" class="h-full w-full object-cover" />
+                    <span v-else class="text-xs font-semibold text-muted-foreground">{{ sidebarUserInitial }}</span>
+                  </div>
+                  <p class="text-sm text-muted-foreground">{{ authStore.user?.name }}</p>
+                </div>
                 <button
                   class="w-full rounded-lg border border-destructive/40 px-3 py-2 text-left text-sm font-medium text-destructive transition hover:bg-destructive/10"
                   @click="logout"

@@ -38,34 +38,34 @@
   }
 
   .dark {
-    --background: 224 41% 7%;
-    --foreground: 223 100% 96%;
-    --card: 221 46% 12%;
-    --card-foreground: 223 100% 96%;
-    --popover: 221 46% 12%;
-    --popover-foreground: 223 100% 96%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 223 100% 96%;
-    --secondary: 220 27% 16%;
-    --secondary-foreground: 223 100% 96%;
-    --muted: 220 27% 16%;
-    --muted-foreground: 223 29% 74%;
-    --accent: 221 25% 18%;
-    --accent-foreground: 223 100% 96%;
+    --background: 226 36% 8%;
+    --foreground: 42 55% 94%;
+    --card: 224 34% 12%;
+    --card-foreground: 42 55% 94%;
+    --popover: 224 34% 12%;
+    --popover-foreground: 42 55% 94%;
+    --primary: 43 82% 56%;
+    --primary-foreground: 226 36% 9%;
+    --secondary: 220 23% 16%;
+    --secondary-foreground: 42 55% 94%;
+    --muted: 220 23% 16%;
+    --muted-foreground: 36 30% 76%;
+    --accent: 41 32% 20%;
+    --accent-foreground: 42 55% 94%;
     --destructive: 0 84% 60%;
-    --destructive-foreground: 223 100% 96%;
-    --border: 220 39% 22%;
-    --input: 220 39% 22%;
-    --ring: 262 83% 58%;
+    --destructive-foreground: 42 55% 94%;
+    --border: 37 20% 27%;
+    --input: 37 20% 27%;
+    --ring: 43 82% 56%;
 
-    --ygo-primary: 262 83% 58%;
-    --ygo-primary-foreground: 223 100% 96%;
-    --ygo-accent: 42 89% 64%;
-    --ygo-accent-foreground: 227 31% 11%;
-    --ygo-accent-soft: 223 27% 16%;
-    --ygo-border: 220 39% 22%;
+    --ygo-primary: 43 82% 56%;
+    --ygo-primary-foreground: 226 36% 9%;
+    --ygo-accent: 41 88% 64%;
+    --ygo-accent-foreground: 226 36% 9%;
+    --ygo-accent-soft: 37 28% 18%;
+    --ygo-border: 37 20% 27%;
     --success: 142 71% 45%;
-    --success-foreground: 223 100% 96%;
+    --success-foreground: 42 55% 94%;
   }
 
   * {

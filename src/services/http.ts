@@ -44,7 +44,15 @@ export const request = async <T>(
   }
 
   const text = await response.text()
-  const parsed = text ? (JSON.parse(text) as unknown) : undefined
+  let parsed: unknown
+
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as unknown
+    } catch {
+      parsed = text
+    }
+  }
 
   if (!response.ok) {
     let message = DEFAULT_ERROR_MESSAGE
@@ -54,6 +62,8 @@ export const request = async <T>(
       if (typeof candidate === 'string' && candidate.trim()) {
         message = candidate
       }
+    } else if (typeof parsed === 'string' && parsed.trim()) {
+      message = parsed
     }
 
     throw new ApiError(message, response.status)

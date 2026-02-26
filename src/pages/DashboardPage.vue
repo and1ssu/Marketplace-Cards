@@ -8,7 +8,7 @@ import { validateTradeForm } from '@/lib/validation'
 import { useAuthStore } from '@/stores/auth'
 import { useCardsStore } from '@/stores/cards'
 import { useTradesStore } from '@/stores/trades'
-import type { Card, Trade } from '@/types/marketplace'
+import type { Card, PaginatedResponse, Trade } from '@/types/marketplace'
 
 type DashboardTab = 'inventory' | 'catalog' | 'trade' | 'my-trades'
 
@@ -66,11 +66,16 @@ const tradeForm = reactive({
   offeringIds: [] as string[],
   receivingIds: [] as string[]
 })
+const showAddCardsConfirmationModal = ref(false)
+const showTradeConfirmationModal = ref(false)
 
 const tradeErrors = reactive<Partial<Record<'offeringIds' | 'receivingIds', string>>>({})
 
+const hasMoreFromPage = <T>(pageData?: PaginatedResponse<T>) =>
+  Boolean(pageData && (pageData.more || pageData.list.length === pageData.rpp))
+
 const catalogCurrentPageData = computed(() => cardsStore.getCatalogPage(catalogPage.value, catalogRpp.value))
-const catalogHasMore = computed(() => Boolean(catalogCurrentPageData.value?.more))
+const catalogHasMore = computed(() => hasMoreFromPage(catalogCurrentPageData.value))
 
 const catalogCards = computed(() => {
   const merged = new Map<string, Card>()
@@ -93,7 +98,7 @@ const catalogCards = computed(() => {
 })
 
 const myTradesCurrentPageData = computed(() => tradesStore.getTradesPage(myTradesPage.value, myTradesRpp.value))
-const myTradesHasMore = computed(() => Boolean(myTradesCurrentPageData.value?.more))
+const myTradesHasMore = computed(() => hasMoreFromPage(myTradesCurrentPageData.value))
 
 const myTrades = computed(() => {
   const merged = new Map<string, Trade>()
@@ -116,9 +121,29 @@ const myTrades = computed(() => {
 })
 
 const myCardIdsSet = computed(() => new Set(cardsStore.myCards.map((card) => card.id)))
+const addableCatalogCards = computed(() => catalogCards.value.filter((card) => !myCardIdsSet.value.has(card.id)))
+const receivableCatalogCards = computed(() => catalogCards.value.filter((card) => !myCardIdsSet.value.has(card.id)))
+const selectedCatalogCardsToAdd = computed(() => {
+  const catalogById = new Map(addableCatalogCards.value.map((card) => [card.id, card]))
+  return cardsToAdd.value
+    .map((cardId) => catalogById.get(cardId))
+    .filter((card): card is Card => Boolean(card))
+})
+const selectedOfferingCards = computed(() => {
+  const myCardsById = new Map(cardsStore.myCards.map((card) => [card.id, card]))
+  return tradeForm.offeringIds
+    .map((cardId) => myCardsById.get(cardId))
+    .filter((card): card is Card => Boolean(card))
+})
+const selectedReceivingCards = computed(() => {
+  const catalogById = new Map(receivableCatalogCards.value.map((card) => [card.id, card]))
+  return tradeForm.receivingIds
+    .map((cardId) => catalogById.get(cardId))
+    .filter((card): card is Card => Boolean(card))
+})
 
 const allCatalogSelected = computed(
-  () => catalogCards.value.length > 0 && catalogCards.value.every((card) => cardsToAdd.value.includes(card.id))
+  () => addableCatalogCards.value.length > 0 && addableCatalogCards.value.every((card) => cardsToAdd.value.includes(card.id))
 )
 
 const allOfferingSelected = computed(
@@ -126,7 +151,14 @@ const allOfferingSelected = computed(
 )
 
 const allReceivingSelected = computed(
-  () => catalogCards.value.length > 0 && catalogCards.value.every((card) => tradeForm.receivingIds.includes(card.id))
+  () =>
+    receivableCatalogCards.value.length > 0 &&
+    receivableCatalogCards.value.every((card) => tradeForm.receivingIds.includes(card.id))
+)
+const isCatalogInitialLoading = computed(() => cardsStore.catalogLoading && catalogCards.value.length === 0)
+const shouldShowCatalogEmptyState = computed(() => !isCatalogInitialLoading.value && addableCatalogCards.value.length === 0)
+const shouldShowTradeReceivingEmptyState = computed(
+  () => !isCatalogInitialLoading.value && receivableCatalogCards.value.length === 0
 )
 
 const isCardNew = (cardId: string) => cardsStore.newCardIds.includes(cardId)
@@ -155,6 +187,25 @@ const ensureCatalogLoaded = async () => {
   }
 }
 
+const ensureCatalogOptionsForTab = async (tab: DashboardTab, maxAttempts = 3) => {
+  if (tab !== 'catalog' && tab !== 'trade') {
+    return
+  }
+
+  let attempts = 0
+
+  while (catalogHasMore.value && attempts < maxAttempts) {
+    const visibleCount = tab === 'catalog' ? addableCatalogCards.value.length : receivableCatalogCards.value.length
+
+    if (visibleCount > 0) {
+      return
+    }
+
+    attempts += 1
+    await loadMoreCatalog()
+  }
+}
+
 const ensureMyTradesLoaded = async () => {
   try {
     await tradesStore.fetchTrades(myTradesPage.value, myTradesRpp.value)
@@ -168,6 +219,7 @@ const setActiveTab = async (tab: DashboardTab) => {
 
   if (tab === 'catalog' || tab === 'trade') {
     await ensureCatalogLoaded()
+    await ensureCatalogOptionsForTab(tab)
   }
 
   if (tab === 'my-trades') {
@@ -194,7 +246,7 @@ const addCards = (selected: string[], ids: string[]) => Array.from(new Set([...s
 const removeCards = (selected: string[], ids: string[]) => selected.filter((id) => !ids.includes(id))
 
 const toggleAllCatalogSelection = () => {
-  const loadedIds = catalogCards.value.map((card) => card.id)
+  const loadedIds = addableCatalogCards.value.map((card) => card.id)
 
   if (allCatalogSelected.value) {
     cardsToAdd.value = removeCards(cardsToAdd.value, loadedIds)
@@ -216,7 +268,7 @@ const toggleAllOfferingSelection = () => {
 }
 
 const toggleAllReceivingSelection = () => {
-  const loadedIds = catalogCards.value.map((card) => card.id)
+  const loadedIds = receivableCatalogCards.value.map((card) => card.id)
 
   if (allReceivingSelected.value) {
     tradeForm.receivingIds = removeCards(tradeForm.receivingIds, loadedIds)
@@ -226,15 +278,42 @@ const toggleAllReceivingSelection = () => {
   tradeForm.receivingIds = addCards(tradeForm.receivingIds, loadedIds)
 }
 
+const normalizeCardsToAddSelection = () => {
+  const selectedUnique = Array.from(new Set(cardsToAdd.value))
+  const selectedAllowed = selectedUnique.filter((cardId) => !myCardIdsSet.value.has(cardId))
+
+  if (selectedAllowed.length !== selectedUnique.length) {
+    notify('Cartas já existentes na sua conta foram removidas da seleção.', 'info')
+  }
+
+  cardsToAdd.value = selectedAllowed
+  return selectedAllowed
+}
+
+const openAddCardsConfirmation = () => {
+  const selectedAllowed = normalizeCardsToAddSelection()
+
+  if (selectedAllowed.length === 0) {
+    notify('Selecione ao menos uma carta para adicionar.', 'error')
+    return
+  }
+
+  showAddCardsConfirmationModal.value = true
+}
+
 const submitAddCards = async () => {
-  if (cardsToAdd.value.length === 0) {
+  const selectedAllowed = normalizeCardsToAddSelection()
+
+  if (selectedAllowed.length === 0) {
+    showAddCardsConfirmationModal.value = false
     notify('Selecione ao menos uma carta para adicionar.', 'error')
     return
   }
 
   try {
-    await cardsStore.addCards(cardsToAdd.value)
+    await cardsStore.addCards(selectedAllowed)
     cardsToAdd.value = []
+    showAddCardsConfirmationModal.value = false
     notify('Cartas adicionadas com sucesso.', 'success')
   } catch {
     notify(cardsStore.error ?? 'Falha ao adicionar cartas.', 'error')
@@ -260,23 +339,51 @@ const addCardFromPreview = async (cardId: string) => {
   }
 }
 
-const submitCreateTrade = async () => {
-  Object.assign(tradeErrors, { offeringIds: undefined, receivingIds: undefined })
-
+const normalizeTradeSelections = () => {
   const offeringUnique = Array.from(new Set(tradeForm.offeringIds))
   const receivingUnique = Array.from(new Set(tradeForm.receivingIds))
+  const receivingAllowed = receivingUnique.filter((cardId) => !myCardIdsSet.value.has(cardId))
+
+  if (receivingAllowed.length !== receivingUnique.length) {
+    notify('Cartas da sua conta foram removidas da lista de recebimento.', 'info')
+  }
 
   tradeForm.offeringIds = offeringUnique
-  tradeForm.receivingIds = receivingUnique
+  tradeForm.receivingIds = receivingAllowed
+
+  return { offeringUnique, receivingAllowed }
+}
+
+const validateCurrentTradeForm = () => {
+  Object.assign(tradeErrors, { offeringIds: undefined, receivingIds: undefined })
+
+  const { offeringUnique, receivingAllowed } = normalizeTradeSelections()
 
   const validation = validateTradeForm({
     offeringIds: offeringUnique,
-    receivingIds: receivingUnique
+    receivingIds: receivingAllowed
   })
 
   Object.assign(tradeErrors, validation)
 
+  return { offeringUnique, receivingAllowed, validation }
+}
+
+const openTradeConfirmation = () => {
+  const { validation } = validateCurrentTradeForm()
+
   if (Object.keys(validation).length > 0) {
+    return
+  }
+
+  showTradeConfirmationModal.value = true
+}
+
+const submitCreateTrade = async () => {
+  const { offeringUnique, receivingAllowed, validation } = validateCurrentTradeForm()
+
+  if (Object.keys(validation).length > 0) {
+    showTradeConfirmationModal.value = false
     return
   }
 
@@ -284,12 +391,13 @@ const submitCreateTrade = async () => {
     await tradesStore.createTrade({
       cards: [
         ...offeringUnique.map((cardId) => ({ cardId, type: 'OFFERING' as const })),
-        ...receivingUnique.map((cardId) => ({ cardId, type: 'RECEIVING' as const }))
+        ...receivingAllowed.map((cardId) => ({ cardId, type: 'RECEIVING' as const }))
       ]
     })
 
     tradeForm.offeringIds = []
     tradeForm.receivingIds = []
+    showTradeConfirmationModal.value = false
     myTradesPage.value = 1
     await tradesStore.fetchTrades(1, myTradesRpp.value, true)
     notify('Solicitacao de troca criada com sucesso.', 'success')
@@ -371,6 +479,41 @@ const onMyTradesScroll = (event: Event) => {
 }
 
 watch(
+  myCardIdsSet,
+  (ownedIds) => {
+    const addable = cardsToAdd.value.filter((cardId) => !ownedIds.has(cardId))
+    if (addable.length !== cardsToAdd.value.length) {
+      cardsToAdd.value = addable
+    }
+
+    const filtered = tradeForm.receivingIds.filter((cardId) => !ownedIds.has(cardId))
+
+    if (filtered.length !== tradeForm.receivingIds.length) {
+      tradeForm.receivingIds = filtered
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  [activeTab, addableCatalogCards, receivableCatalogCards, catalogHasMore],
+  ([tab, addableCards, receivableCards, hasMore]) => {
+    if (!hasMore || cardsStore.catalogLoading || catalogLoadingMore.value) {
+      return
+    }
+
+    if (tab === 'catalog' && addableCards.length === 0) {
+      void ensureCatalogOptionsForTab('catalog')
+    }
+
+    if (tab === 'trade' && receivableCards.length === 0) {
+      void ensureCatalogOptionsForTab('trade')
+    }
+  },
+  { immediate: true }
+)
+
+watch(
   () => route.query.tab,
   (tabQuery) => {
     const parsed = parseTab(tabQuery)
@@ -380,7 +523,10 @@ watch(
     }
 
     if (parsed === 'catalog' || parsed === 'trade') {
-      void ensureCatalogLoaded()
+      void (async () => {
+        await ensureCatalogLoaded()
+        await ensureCatalogOptionsForTab(parsed)
+      })()
     }
 
     if (parsed === 'my-trades') {
@@ -458,7 +604,7 @@ onMounted(async () => {
           <button
             class="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
             :disabled="cardsStore.myCardsLoading"
-            @click="submitAddCards"
+            @click="openAddCardsConfirmation"
           >
             Adicionar selecionadas ({{ cardsToAdd.length }})
           </button>
@@ -466,9 +612,15 @@ onMounted(async () => {
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/70 bg-card/70 p-3" @scroll.passive="onCatalogScroll">
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <p v-if="isCatalogInitialLoading" class="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+          Carregando cartas do catálogo...
+        </p>
+        <p v-else-if="shouldShowCatalogEmptyState" class="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+          Não há novas cartas disponíveis para adicionar no momento.
+        </p>
+        <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="card in catalogCards"
+            v-for="card in addableCatalogCards"
             :key="card.id"
             class="group flex h-[21rem] cursor-pointer flex-col rounded-xl border border-border/70 bg-card/80 p-2.5 transition hover:border-foreground"
           >
@@ -483,8 +635,8 @@ onMounted(async () => {
               :alt="card.name"
               thumb-class="rounded-lg border border-border/60 bg-white/70 p-1.5"
               image-class="h-40 w-full object-contain"
-              :action-label="myCardIdsSet.has(card.id) ? 'Ja adicionada' : 'Adicionar à conta'"
-              :action-disabled="myCardIdsSet.has(card.id)"
+              action-label="Adicionar à conta"
+              :action-disabled="false"
               :action-busy="addingCardFromPreviewId === card.id"
               @action="addCardFromPreview(card.id)"
             />
@@ -548,8 +700,15 @@ onMounted(async () => {
         <p v-if="tradeErrors.receivingIds" class="mt-2 text-xs text-destructive">{{ tradeErrors.receivingIds }}</p>
 
         <div class="mt-3 max-h-[28rem] space-y-2 overflow-y-auto pr-2" @scroll.passive="onTradeReceivingScroll">
+          <p v-if="isCatalogInitialLoading" class="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+            Carregando cartas para receber...
+          </p>
+          <p v-else-if="shouldShowTradeReceivingEmptyState" class="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+            Não há cartas disponíveis para receber no momento.
+          </p>
           <label
-            v-for="card in catalogCards"
+            v-else
+            v-for="card in receivableCatalogCards"
             :key="card.id"
             class="flex cursor-pointer items-center gap-3 rounded-lg border border-border/60 p-2"
           >
@@ -583,7 +742,7 @@ onMounted(async () => {
       <button
         class="rounded-lg bg-primary px-4 py-3 font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60 lg:col-span-2"
         :disabled="tradesStore.actionLoading"
-        @click="submitCreateTrade"
+        @click="openTradeConfirmation"
       >
         {{ tradesStore.actionLoading ? 'Criando solicitação...' : 'Publicar solicitação de troca' }}
       </button>
@@ -620,5 +779,101 @@ onMounted(async () => {
         </p>
       </div>
     </section>
+
+    <div
+      v-if="showAddCardsConfirmationModal"
+      class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+      @click.self="showAddCardsConfirmationModal = false"
+    >
+      <article class="w-full max-w-3xl rounded-2xl border border-border/70 bg-background p-5 shadow-2xl">
+        <header class="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-xl font-semibold">Confirmar adição de cartas</h3>
+            <p class="mt-1 text-sm text-muted-foreground">
+              Revise as cartas selecionadas antes de adicionar à sua conta.
+            </p>
+          </div>
+          <button class="rounded-md border border-border px-2.5 py-1 text-xs" @click="showAddCardsConfirmationModal = false">Fechar</button>
+        </header>
+
+        <section class="rounded-xl border border-border/70 bg-card/70 p-3">
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Cartas selecionadas ({{ selectedCatalogCardsToAdd.length }})
+          </p>
+          <ul class="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+            <li v-for="card in selectedCatalogCardsToAdd" :key="`confirm-add-${card.id}`" class="flex items-center gap-3">
+              <img :src="card.imageUrl" :alt="card.name" class="h-14 w-10 rounded-md border border-border/60 bg-white/70 object-contain p-0.5" />
+              <span class="text-sm">{{ card.name }}</span>
+            </li>
+          </ul>
+        </section>
+
+        <footer class="mt-5 flex flex-wrap justify-end gap-2">
+          <button class="rounded-lg border border-border px-4 py-2 text-sm" @click="showAddCardsConfirmationModal = false">Cancelar</button>
+          <button
+            class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            :disabled="cardsStore.myCardsLoading"
+            @click="submitAddCards"
+          >
+            {{ cardsStore.myCardsLoading ? 'Adicionando...' : 'Confirmar adição' }}
+          </button>
+        </footer>
+      </article>
+    </div>
+
+    <div
+      v-if="showTradeConfirmationModal"
+      class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+      @click.self="showTradeConfirmationModal = false"
+    >
+      <article class="w-full max-w-3xl rounded-2xl border border-border/70 bg-background p-5 shadow-2xl">
+        <header class="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-xl font-semibold">Confirmar solicitação de troca</h3>
+            <p class="mt-1 text-sm text-muted-foreground">
+              Revise as cartas selecionadas antes de publicar.
+            </p>
+          </div>
+          <button class="rounded-md border border-border px-2.5 py-1 text-xs" @click="showTradeConfirmationModal = false">Fechar</button>
+        </header>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <section class="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
+            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-600">
+              Oferecendo ({{ selectedOfferingCards.length }})
+            </p>
+            <ul class="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+              <li v-for="card in selectedOfferingCards" :key="`confirm-offering-${card.id}`" class="flex items-center gap-3">
+                <img :src="card.imageUrl" :alt="card.name" class="h-14 w-10 rounded-md border border-border/60 bg-white/70 object-contain p-0.5" />
+                <span class="text-sm">{{ card.name }}</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="rounded-xl border border-indigo-500/25 bg-indigo-500/5 p-3">
+            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-600">
+              Recebendo ({{ selectedReceivingCards.length }})
+            </p>
+            <ul class="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+              <li v-for="card in selectedReceivingCards" :key="`confirm-receiving-${card.id}`" class="flex items-center gap-3">
+                <img :src="card.imageUrl" :alt="card.name" class="h-14 w-10 rounded-md border border-border/60 bg-white/70 object-contain p-0.5" />
+                <span class="text-sm">{{ card.name }}</span>
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <footer class="mt-5 flex flex-wrap justify-end gap-2">
+          <button class="rounded-lg border border-border px-4 py-2 text-sm" @click="showTradeConfirmationModal = false">Cancelar</button>
+          <button
+            class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            :disabled="tradesStore.actionLoading"
+            @click="submitCreateTrade"
+          >
+            {{ tradesStore.actionLoading ? 'Criando solicitação...' : 'Confirmar e publicar' }}
+          </button>
+        </footer>
+      </article>
+    </div>
   </section>
 </template>

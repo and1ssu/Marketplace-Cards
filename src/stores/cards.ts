@@ -14,13 +14,122 @@ const getErrorMessage = (error: unknown) => {
 
 const catalogCacheKey = (page: number, rpp: number) => `${rpp}:${page}`
 const newCardsStorageKey = (userId: string) => `marketplace-new-cards:${userId}`
+const myCardsStorageKey = (userId: string) => `marketplace-my-cards-cache:${userId}`
 const uniqueIds = (ids: string[]) => Array.from(new Set(ids))
+const CATALOG_CACHE_STORAGE_KEY = 'marketplace-catalog-cache:v1'
+const CATALOG_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const MY_CARDS_CACHE_TTL_MS = 5 * 60 * 1000
+
+interface CatalogCacheEntry {
+  data: PaginatedResponse<Card>
+  expiresAt: number
+}
+
+type PersistedCatalogCache = Record<string, CatalogCacheEntry>
+
+interface MyCardsCachePayload {
+  data: Card[]
+  expiresAt: number
+}
+
+const readPersistedCatalogCache = (): PersistedCatalogCache => {
+  try {
+    const raw = localStorage.getItem(CATALOG_CACHE_STORAGE_KEY)
+
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+
+    return parsed as PersistedCatalogCache
+  } catch {
+    return {}
+  }
+}
+
+const writePersistedCatalogCache = (cache: PersistedCatalogCache) => {
+  try {
+    localStorage.setItem(CATALOG_CACHE_STORAGE_KEY, JSON.stringify(cache))
+  } catch {
+    return
+  }
+}
+
+const getCatalogCacheFromStorage = (key: string) => {
+  const persisted = readPersistedCatalogCache()
+  const entry = persisted[key]
+
+  if (!entry) {
+    return null
+  }
+
+  if (Date.now() > entry.expiresAt) {
+    delete persisted[key]
+    writePersistedCatalogCache(persisted)
+    return null
+  }
+
+  return entry.data
+}
+
+const setCatalogCacheToStorage = (key: string, data: PaginatedResponse<Card>) => {
+  const persisted = readPersistedCatalogCache()
+  persisted[key] = {
+    data,
+    expiresAt: Date.now() + CATALOG_CACHE_TTL_MS
+  }
+  writePersistedCatalogCache(persisted)
+}
+
+const getMyCardsFromStorage = (userId: string) => {
+  try {
+    const raw = localStorage.getItem(myCardsStorageKey(userId))
+
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw) as MyCardsCachePayload
+
+    if (!Array.isArray(parsed?.data) || typeof parsed.expiresAt !== 'number') {
+      return null
+    }
+
+    if (Date.now() > parsed.expiresAt) {
+      localStorage.removeItem(myCardsStorageKey(userId))
+      return null
+    }
+
+    return parsed.data
+  } catch {
+    return null
+  }
+}
+
+const setMyCardsToStorage = (userId: string, cards: Card[]) => {
+  try {
+    const payload: MyCardsCachePayload = {
+      data: cards,
+      expiresAt: Date.now() + MY_CARDS_CACHE_TTL_MS
+    }
+
+    localStorage.setItem(myCardsStorageKey(userId), JSON.stringify(payload))
+  } catch {
+    return
+  }
+}
 
 interface CardsState {
   catalogPages: Record<string, PaginatedResponse<Card>>
   myCards: Card[]
   newCardIds: string[]
   newCardsOwnerId: string | null
+  loadedMyCardsOwnerId: string | null
   catalogLoading: boolean
   myCardsLoading: boolean
   error: string | null
@@ -32,6 +141,7 @@ export const useCardsStore = defineStore('cards', {
     myCards: [],
     newCardIds: [],
     newCardsOwnerId: null,
+    loadedMyCardsOwnerId: null,
     catalogLoading: false,
     myCardsLoading: false,
     error: null
@@ -45,6 +155,8 @@ export const useCardsStore = defineStore('cards', {
       if (!userId) {
         this.newCardsOwnerId = null
         this.newCardIds = []
+        this.loadedMyCardsOwnerId = null
+        this.myCards = []
         return
       }
 
@@ -95,12 +207,22 @@ export const useCardsStore = defineStore('cards', {
         return this.catalogPages[key]
       }
 
+      if (!force) {
+        const cached = getCatalogCacheFromStorage(key)
+
+        if (cached) {
+          this.catalogPages[key] = cached
+          return cached
+        }
+      }
+
       this.catalogLoading = true
       this.error = null
 
       try {
         const data = await getCards(page, rpp)
         this.catalogPages[key] = data
+        setCatalogCacheToStorage(key, data)
         return data
       } catch (error) {
         this.error = getErrorMessage(error)
@@ -110,22 +232,46 @@ export const useCardsStore = defineStore('cards', {
       }
     },
     async fetchMyCards(force = false) {
-      if (!force && this.myCards.length > 0) {
-        return this.myCards
-      }
-
       const auth = useAuthStore()
       if (!auth.token) {
         throw new Error('Usuario nao autenticado.')
       }
 
-      this.ensureNewCardsState(auth.user?.id ?? null)
+      const userId = auth.user?.id ?? null
+      this.ensureNewCardsState(userId)
+
+      if (!userId) {
+        throw new Error('Usuario nao autenticado.')
+      }
+
+      if (this.loadedMyCardsOwnerId !== userId) {
+        this.myCards = []
+        this.loadedMyCardsOwnerId = null
+      }
+
+      if (!force && this.myCards.length > 0) {
+        return this.myCards
+      }
+
+      if (!force) {
+        const cached = getMyCardsFromStorage(userId)
+
+        if (cached) {
+          this.myCards = cached
+          this.loadedMyCardsOwnerId = userId
+          this.syncNewCardsWithInventory()
+          return cached
+        }
+      }
+
       this.myCardsLoading = true
       this.error = null
 
       try {
         const data = await getMyCards(auth.token)
         this.myCards = data
+        this.loadedMyCardsOwnerId = userId
+        setMyCardsToStorage(userId, data)
         this.syncNewCardsWithInventory()
         return data
       } catch (error) {
