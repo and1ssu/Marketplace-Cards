@@ -7,7 +7,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'marketplace',
-      component: () => import('@/pages/MarketplacePage.vue')
+      component: () => import('@/pages/marketplace/index.vue')
     },
     {
       path: '/login',

@@ -3,8 +3,9 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import bannerImage from '@/assets/img/Banner.webp'
-import TradeRequestCard from '@/components/app/TradeRequestCard.vue'
 import { useAppContext } from '@/context/app-context'
+import MarketplaceHero from '@/pages/marketplace/components/MarketplaceHero.vue'
+import MarketplaceTradeGroups from '@/pages/marketplace/components/MarketplaceTradeGroups.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTradesStore } from '@/stores/trades'
 import type { PaginatedResponse, Trade } from '@/types/marketplace'
@@ -274,82 +275,29 @@ onBeforeUnmount(() => {
 
 <template>
   <section ref="pageRoot" class="space-y-6">
-    <header
-      data-gsap="marketplace-hero"
-      class="relative overflow-hidden rounded-3xl border border-border/60 shadow-xl shadow-black/10"
-    >
-      <div
-        class="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        :style="heroStyle"
-      ></div>
-      <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/35 to-slate-950/10"></div>
-      <div class="relative p-6 sm:p-8" style="text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);">
-        <p class="text-xs uppercase tracking-[0.2em] text-slate-100">Marketplace</p>
-        <h1 class="mt-2 max-w-3xl font-display text-4xl font-bold leading-tight text-white sm:text-5xl">
-          Trocas de cartas abertas
-        </h1>
-        <p class="mt-3 max-w-2xl text-sm text-slate-100/95 sm:text-base">
-          Explore as ofertas da comunidade. Visitantes podem visualizar tudo e usuários logados podem gerenciar suas solicitações.
-        </p>
-        <div class="mt-5 flex flex-wrap gap-2">
-          <span class="rounded-full border border-white/45 bg-white/20 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
-            {{ groupedTrades.length }} solicitantes
-          </span>
-          <span class="rounded-full border border-white/45 bg-white/20 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
-            {{ trades.length }} trocas carregadas
-          </span>
-          <span class="rounded-full border border-white/45 bg-white/20 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
-            {{ authStore.isAuthenticated ? 'Modo autenticado' : 'Modo visitante' }}
-          </span>
-        </div>
-      </div>
-    </header>
+    <MarketplaceHero
+      :hero-style="heroStyle"
+      :grouped-trades-count="groupedTrades.length"
+      :trades-count="trades.length"
+      :is-authenticated="authStore.isAuthenticated"
+    />
 
     <p v-if="tradesStore.loading" class="text-sm text-muted-foreground">Carregando trocas...</p>
     <p v-else-if="trades.length === 0" class="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
       Nenhuma solicitação de troca disponível no momento.
     </p>
 
-    <div v-else class="grid gap-4">
-      <article
-        v-for="group in groupedTrades"
-        :key="group.userId"
-        data-gsap="trade-group"
-        class="rounded-2xl border border-border/70 bg-card/80 p-3"
-      >
-        <button
-          type="button"
-          class="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left transition hover:bg-accent/60"
-          @click="toggleGroup(group.userId)"
-        >
-          <div class="min-w-0">
-            <p class="text-sm text-muted-foreground">Solicitante</p>
-            <h2 class="truncate text-lg font-semibold">{{ group.userName }}</h2>
-          </div>
-          <div class="flex items-center gap-3 pl-3">
-            <span class="rounded-full bg-ygo-accentSoft px-2.5 py-1 text-xs font-semibold text-ygo-accent">
-              {{ group.trades.length }} {{ group.trades.length > 1 ? 'trocas' : 'troca' }}
-            </span>
-            <span class="text-sm text-muted-foreground">
-              {{ openGroups[group.userId] ? 'Ocultar' : 'Mostrar' }}
-            </span>
-          </div>
-        </button>
-
-        <Transition :css="false" @enter="animateGroupEnter" @leave="animateGroupLeave">
-          <div v-if="openGroups[group.userId]" class="mt-3 grid gap-4">
-            <TradeRequestCard
-              v-for="trade in group.trades"
-              :key="trade.id"
-              :trade="trade"
-              :can-delete="authStore.user?.id === trade.userId"
-              :busy="tradesStore.actionLoading"
-              @delete="removeTrade"
-            />
-          </div>
-        </Transition>
-      </article>
-    </div>
+    <MarketplaceTradeGroups
+      v-else
+      :groups="groupedTrades"
+      :open-groups="openGroups"
+      :current-user-id="authStore.user?.id"
+      :action-loading="tradesStore.actionLoading"
+      :on-enter="animateGroupEnter"
+      :on-leave="animateGroupLeave"
+      @toggle-group="toggleGroup"
+      @delete-trade="removeTrade"
+    />
 
     <p v-if="loadingMore" class="text-center text-sm text-muted-foreground">Carregando mais trocas...</p>
     <p v-else-if="!hasMoreTrades && trades.length > 0" class="text-center text-sm text-muted-foreground">
